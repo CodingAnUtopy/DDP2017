@@ -1,0 +1,7 @@
+CC=gcc
+CPPFLAGS=-Wall -Wextra
+CFLAGS=-g
+LDFLAGS=
+LDLIBS=
+
+all: DDP-01.01 DDP-01.02 DDP-01.03

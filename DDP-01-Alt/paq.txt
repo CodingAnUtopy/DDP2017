@@ -1,0 +1,341 @@
+1/ INTRODUCTION
+
+Défi de Pâques n°1 : calculer la date de Pâques de 2001 à 2100 en générant cent lignes au format aaaa/mm/jj
+
+Pour ce faire, il suffit d'appliquer bêtement un algorithme existant, ce n'est pas stimulant. Je vais donc ajouter une contrainte à l'énoncé : calculer la date de Pâques, sans utiliser d'algorithme tout fait. L'idée, qui me stimule beaucoup plus, est de partir de la définition astronomique de Pâques (c'est le premier dimanche qui suit la pleine lune qui suit l'équinoxe de printemps) et d'utiliser les données telles que la période entre deux pleines lunes ou la période entre deux équinoxes.
+
+Par ailleurs je vais construire le programme pas à pas dans ce fichier pour montrer comment je procède (ça me paraît plus intéressant que la solution). On le répète souvent : on ne doit pas commencer par taper le code. Ben oui mais on fait quoi, alors ? C'est ce que je vais montrer : tout ce qui suit, c'est ce que j'ai fait en temps réel.
+
+Remarque : en réalité la date de Pâques n'a pas la définition astronomique que je viens de citer (c'est grâce au défi que je viens de l'apprendre !). La différence est très subtile et je m'attends à ce que la définition astronomique donne les résultats corrects dans 99 % des cas. Ce sera intéressant de comparer les « Pâques astronomiques » avec les « Pâques en vrai »...
+
+2/ ALGORITHME DE BASE
+
+Mais commençons par l'algorithme. Il est a priori très simple :
+
+Pour an = 2001 à 2100
+    calculer la date de l'équinoxe de printemps
+    calculer la date de la pleine lune qui suit
+    calculer la date du dimanche qui suit : c'est Pâques
+    afficher la date correspondante
+
+Et là je me rends compte d'une difficulté : comment calculer les dates ? Le plus simple serait d'utiliser le jour julien : c'est une unité de temps couramment utiliser dans les calculs astronomiques, et j'ai déjà des fonctions à son sujet. Mais je m'interdis d'utiliser des algorithmes tout fait, donc je m'interdis d'utiliser le jour julien. C'est à moi d'inventer ma propre échelle de temps (c'est pour ça que ma version du défi est intéressante !). Je me propose de calculer les jours à partir d'une date d'origine : le 0 janvier 2000 (c'est-à-dire le 31 décembre 1999) à 0h UTC (temps universel coordonnée, c'est qu'on appelle parfois GMT ‒ la différence est subtile). Calculer le nombre de jours entre une date courante et une date de référence est d'ailleurs un exercice classique.
+
+Autre chose importante : j'ai besoin de connaître l'équinoxe de printemps pour une certaine date de référence (j'utiliserai la périodicité pour obtenir les équinoxes suivants). Je vais donc prendre l'équinoxe de 2000. Consultons un moteur de recherche (j'utilise Qwant), il me propose https://www.imcce.fr/public/divers/Equinoxe_printemps_1583_2999.pdf
+
+--> L'équinoxe de printemps 2000 s'est produit le 20/03/2000 à 07h35m16s UT. J'utiliserai la fonction qui convertit en nombre de jours depuis le 0/1/2000. Au passage, je garde sous le coude ce lien pour vérifier le bon fonctionnement de la fonction de calcul des équinoxes que je vais écrire plus tard.
+
+De même, j'ai besoin de connaître la date de la première pleine lune de 2000. J'utiliserai ce site : http://www.astro.oma.be/GENERAL/INFO/fri008.html
+
+--> La première pleine lune de l'an 2000 s'est produite le 21/01/2000 à 4h41m UT.
+
+3/ CALCUL DES DATES
+
+Je vais commencer par le calcul des dates en nombre de jours depuis le 0 janvier 2000. C'est une travail annexe et un peu casse-tête, mais j'ai envie de commencer par ça.
+
+Définition : le J2000 d'une date est le nombre de jours (décimaux) écoulés depuis le 31 décembre 1999 à 0h UTC (ou UT).
+
+J'ai besoin de deux fonctions de conversion :
+    ‒ une qui retourne le J2000, donc qui retourne un 'float' (pas besoin d'une grande précision, on pourra travailler à deux ou trois décimales près, donc j'utiliserai des 'float') ;
+    ‒ et une qui retourne une date « normale », donc une structure années/mois/jour.
+
+Ah oui, il faut donc définir une structure. Dois-je mettre les heures et les minutes dans cette structure ? Non, puisque ça va servir uniquement à l'affichage (tous les calculs internes se feront bien sûr en J2000), on n'a pas besoin des heures et minutes. Donc ce que je vais faire, c'est définir les jours comme un nombre décimal (un 'float' suffira).
+
+    struct amjdate
+    {
+        unsigned a ;    // année
+        unsigned m ;    // mois
+        float j ;       // jour
+    } ;
+
+Définition : la date AMJ est formée de l'année, du mois (1 à 12) et du jour (décimal).
+
+Les deux fonctions de conversion auront donc comme prototype :
+
+    float conv_j2000(struct amjdate date) ; // convertit 'date' en J2000
+    struct amjdate conv_amj(float njours) ; // convertit 'njours' en amjdate
+
+Elles seront défines dans un fichier séparé, "dates.c". Un programme "testdates.c" utilisera ces fonctions pour vérifier qu'elles marchent bien.
+
+À ce stade, j'ai déjà mon fichier "dates.h" :
+
+    #ifndef DATES_H
+    #define DATES_H
+
+    struct amjdate
+    {
+        unsigned a ;    // année
+        unsigned m ;    // mois
+        float j ;       // jour
+    } ;
+
+    float conv_j2000(struct amjdate date) ; // convertit 'date' en J2000
+    struct amjdate conv_amj(float jours) ;  // convertit 'jours' en AMJ
+
+#endif
+
+Reste à écrire ces deux fonctions sans réutiliser d'algorithmes tout faits, ça ne va pas être de la tarte... (Mais c'est tout l'intérêt de cette version du défi !)
+
+a) La fonction 'conv_j2000'
+
+D'abord, on va supposer que la date est toujours postérieure au 0 janvier 2000. À la limite on peut commencer par le tester et afficher un message d'erreur si ça n'est pas le cas.
+
+L'algorithme va donc consister à :
+    ‒ calculer le nombre de jours entre le 0 janvier 2000 et le 0 janvier de l'année courante ;
+    ‒ ajouter le nombre de jours entre le 0 janvier de l'année courante et la date courante.
+
+Je vais faire ça avec deux fonctions :
+
+    float njours_depuis_2000(unsigned an) ;
+        // nombre de jours entre le 0 janvier 2000 et le 0 janvier de 'an'.
+    float njours_depuis_0janvier(struct amjdate date) ;
+        // nombre de jours entre la date AMJ et le 0 janvier de l'année
+
+(Je galère vraiment pour nommer ces fonctions !)
+
+Remarque : j'ai pris le parti de me tenir à la date 2000 comme année de référence. J'aurais pu en faire une constante, éventuellement modifiable si on veut afficher les dates de Pâques pour d'autres si_cles, mais ce serait aller au-delà du défi de débutant.)
+
+J'aurais probablement besoin, aussi, d'une fonction qui teste si l'année est bissextile :
+    bool bissextile(unsigned an) ;
+
+(Penser à inclure <stdbool.h>)
+
+Je ne vais pas détailler l'écriture de toutes les fonctions, juste celle de 'bissextile'.
+
+Une année est bissextile si elle est divisible par 4, sauf si elle est divisible par 100 sans l'être par 400. D'où :
+
+    bool bissextile(unsigned an)
+    {
+        bool bis = false ;  // bissextilité
+        if (an % 4 == 0)
+            bis = true ;    // bissextile en calendrier julien
+        if ((an % 100 == 0) && (an % 400 != 0))
+            bis = false ;   // pas bissextile en calendrier grégorien
+        return bis ;
+    }
+
+(Le code est compliqué et pas astucieux, il aurait pu tenir sur une seule ligne, mais je le préfère ainsi, ça le rend plus lisible. Par exemple je n'ai pas envie d'écrire un truc comme « bis = an % 4 », ce serait astucieux mais ça utilise le fait que faux==0, qu'on n'a pas à savoir si on utilise des booléens.)
+
+Et pour tester cette fonction (il faut tester fonction par fonction, ne pas attendre que le programme soit terminé pour ça !) je mets dans "testdates.c" :
+
+    #include <stdio.h>
+    #include <stdlib.h>
+    #include "dates.h"
+
+    int main(void)
+    {
+        unsigned an ;
+        do
+        {
+            printf("Année : ") ;
+            scanf("%u", &an) ;
+            if (bissextile(an))
+                printf("Cette année est bissextile.\n") ;
+            else
+                printf("Cette année n'est pas bissextile.\n") ;
+        } while (an != 0) ;
+        return EXIT_SUCCESS ;
+    }
+
+J'ai testé sur diverses dates, notamment 2000, 2100, 2200, 2300 et 2400, ça a l'air de marcher.
+
+Passons à 'njours_depuis_an' : si toutes les années avaient 365 jours, il suffirait de retourner le nombre d'années écoulées multipliée par 365. Mais il faut ajouter 1 pour chaque année bissextile. Comme je n'ai pas envie de me casser la tête à chercher l'algorithme optimal, je vais tout simplement parcourir les années dans une boucle et incrémenter +365 ou +366 selon que l'année est bissextile ou pas. Il aurait été plus judicieux de compter le nombre d'années bissextiles, mais c'est casse-tête. Et puis je viens d'écrire la fonction 'bissextile', j'ai envie de m'en servir. Plus tard, éventuellement, j'écrirais une version plus astucieuse de 'njours_depuis_an'. (C'est un défi de débutant, pas un défi d'expert !)
+
+Comme précédemment, une fois la fonction écrite, je la teste. (J'y ai inclus un test de validité des années : 'an' doit supérieur ou égal à 2000. Si ce n'est pas le cas, la fonction signale l'erreur pour info mais poursuit les calculs ‒ elle retournera une valeur négative.)
+
+Pour 'njours_depuis_0janvier', je vais définir un tableau qui donne, pour chaque mois numérique, le nombre de jours écoulés entre le 0 janvier et le 0 du mois. Par exemple enrte le 0 janvier et le 0 février, il s'écoule 31 jours, donc entre le 0 janvier et le 24 février, il s'écoule 31+24 jours. Voici l'initialisation de ce tableau :
+
+    unsigned tabmois[13] = 
+        {0, 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334} ;
+
+(Le premier 0 n'a aucune intérêt, c'est pour remplir la case 0, qui sera toujours inutilisée.)
+
+Je trouve tout à fait logique de déclarer ce tableau comme variable externe constante : il n'est pas lié à la fonction, on ne va pas le re-déclarer et le re-initialiser à chaque appel de la fonction. Par contre il n'est utilisable que dans les fonctions de "dates.c", donc sera défini comme 'static' dans "dates.c" (ou dans "dates.h" ? ça marche dans "dates.c").
+
+Le calcul du nombre de jours est alors très simple :
+    nj = tabmois[date.m] + date.j ;
+
+et on ajoute 1.0 si l'année est bissextile et si on est dans un mois > 2.
+
+Remarque : à ce stade, je m'aperçois qu'il me faudrait une fonction qui vérifie qu'une date AMJ est valide (car pour utiliser le tableau ci-dessus, je dois éviter à tout prix que le mois soit supérieur à 12 : ça générerait une erreur de segmentation !) :
+    bool amjvalide(struct amj date) ;
+
+(Pour cette fonction, je vérifie que l'année est supérieure ou égale à 2000, que le mois est compris entre 1 et 12 et que le jour est compris entre 1 et 31. Ce n'est pas précis pour les jours, mais le but est surtout d'éviter les erreurs de segmentation.)
+
+Il n'y a plus qu'à tester... OK, après corrections de quelques petites erreurs, ça marche.
+
+On peut maintenant écrire la fonction 'float conv_j2000' : le nombre de jours depuis le 0 janvier 2000 est égal au résultat donné par les deux dernières fonctions (nombre de jours entre 0 janvier 2000 et 0 janvier de l'année courante + nombre de jours entre 0 janvier de l'année courante et date courante).
+
+Et maintenant, le plus difficile : convertir un nombre de jours en une date AMJ !
+
+b) La fonction 'conv_amj'
+
+Pour simplifier, je vais supposer qu'on est en 2000, donc que le nombre de jours ('njours') est compris entre 0.0 et 365.0. Il va falloir déterminer le mois, on verra plus tard pour déterminer l'année. Quelque chose me dit que le tableau 'tabmois' va servir...
+
+Par exemple si njours vaut 237. Je vois dans le tableau que 237 suit 212, qui est l'élément d'indice 8. Donc c'est le mois d'août. Et 237-212 = 25 : le 25 août. Sauf que 2000 est une année bissextile, donc en fait on est "seulement" le 24 août (à cause du 29/02 qui s'est intercalé).
+
+Le coup des années bissextiles va tout compliquer ! Par exemple si 'njours' vaut 60, a priori on est le 1er mars. Mais dans une année bissextile, le jour n°60 est le 29 février : même le mois change !
+
+Le plus simple est d'utiliser un deuxième tableau 'tabmois', mais associé à une année bissextile :
+
+    unsigned tabmoisb[13] =
+        {0, 0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335} ;
+
+(La fonction 'njours_depuis_0janvier' pourrait utiliser ce tableau, mais je ne la modifie pas, elle est bien comme elle est.)
+
+Ainsi, l'algorithme est :
+    ‒ trouver l'indice de la valeur immédiatement supérieure : c'est le mois ;
+    ‒ calculer njours moins cette valeur : c'est le jour ;
+ces deux calculs étant à faire avec l'un ou l'autre tableau. Une première façon serait de faire :
+    if (bissextile(an))
+        /* les deux calculs en utilisant tabmoisb */
+    else
+        /* les deux calculs en utilisant tabmois */
+
+Inconvénient : on va recopier deux fois le même bloc, à l'exception du nom du tableau.
+
+Il y a plus astucieux en utilisant un pointeur :
+    if (bissextile(an))
+        pointeur = pointe sur tabmois1
+    else
+        pointeur = pointe sur tabmois
+    /* ensuite les deux calculs à partir de ce pointeur */
+
+En tout cas, je vois qu'il faut d'abord écrire une fonction qui, pour un nombre de jours donnés (écoulés depuis le 0 janvier), retourne j et m :
+
+    struct amjdate conv_mj(unsigned an, float njours) ;
+        // convertit 'njours' de l'année 'an' en date AMJ
+
+Pour trouver le mois, j'utilise cette boucle :
+
+    for (mois = 1 ; mois <= 12 ; mois++)
+    {
+        if (ptab[mois+1] >= njours)
+            break ;
+    }
+
+(On quitte la boucle dès qu'on trouvé une valeur supérieure à 'njours'.) J'ai utilisé un 'for' plutôt qu'un 'while' : d'une part parce que je suis plus à l'aise avec les 'for', d'autre part je suis certain qu'il n'y aura pas de dépassement de capacité du tableau. Avec un 'while', on ne sait jamais : si j'écris mal la condition d'arrêt, boum !...
+
+Reste à tester : le plus simple est de partir d'une date AMJ avec J=2000, de la convertir en J2000, puis de faire l'opération inverse : on doit trouver la date AMJ de départ !
+
+Et maintenant, écrivons (enfin) la fonction 'conv_amj'. Il reste donc à déterminer en quelle année se situe la date courante. Une idée simple, bien que loin d'être optimale, va être de calculer le nombre de jours entre le 1 janvier de chaque année et le 1 janvier 2000. Lorsque ce nombre sera supérieur à 'njours', on aura dépassé l'année. L'année recherchée est donc la précédente. L'avantage, c'est qu'on va ré-utiliser une des petites fonctions ci-dessus, en l'occurence 'njours_depuis_2000'.
+
+J'ai testé pas mal de dates, notamment du genre 29/02/2400, ça a l'air de marcher ! Si je lui demande le 29/02/2005, il retrouve le 01/03/2005, ce qui est normal.
+
+Et voilà : "dates.c" est terminé. À mon avis j'ai fait le plus dur !
+
+(Ça fait trois heures que je bosse et j'en ai plein la tête, la suite demain...)
+
+4/ CALCUL DES ÉQUINOXES ET DES PLEINES LUNES
+
+Ces fonctions seront écrites dans les fichiers "astro.h" et "astro.c". Elles n'utiliseront que des dates en J2000.
+
+J'ai besoin de la date précise de l'équinoxe de printemps 2000, et ensuite il suffira d'ajouter la périodicité des équinoxes. De même pour les dates des pleines lunes. D'après les sites indiqués en introduction :
+    ‒ Équinoxe de printemps 2000 : 20/03/2000 à 07h35m16s UT, c'est-à-dire le 20.316157 mars.
+        → En J2000 : 80.316157 (calculé en utilisant le programme de vérification).
+    ‒ Première pleine lune de 2000 : 21/01/2000 à 4h41m UT, c'est-à-dire le 21.195139 janvier (les dernières décimales ne sont pas significatives, je les garde pour ne pas accumuler d'erreurs d'arrondis).
+        → En J2000 : 21.195139.
+
+a) Calcul des équinoxes
+
+L'intervalle de temps entre deux équinoxes de printemps s'appelle l'année tropique (l'intervalle entre les équinoxes d'automne et entre les solstices est légèrement différent, à cause de la deuxième loi de Kepler).
+
+Wikipédia dit, concernant l'année tropique : « La durée de l'année tropique varie selon l'époque. Elle diminue régulièrement, actuellement, d'environ 0,53 s par siècle. Elle était évaluée en 2000 à 365 jours 5 heures 48 minutes 45,198 secondes1, soit 31 556 925,198 s ou 365,2421898 jours de 24 heures. »
+
+Donc :
+    ‒ En 2000 : 365 jours 5 heures 48 minutes 45.198 secondes = 365.242190 jours.
+    ‒ En 2100 : 365 jours 5 heures 48 minutes 44.668 secondes = 365.242184 jours.
+
+La différence est minime, surtout que j'utilise des 'float'. Je vais donc supposer que la période est 365.242187 jours (la valeur moyenne).
+
+Je vais commencer par écrire un petit programme qui affiche les dates des équinoxes de printemps. Je le comparerai à https://www.imcce.fr/public/divers/Equinoxe_printemps_1583_2999.pdf
+
+Le cœur du programme est une boucle :
+
+    jequinoxe = 80.316157
+    Pour an = 2001 à 2100
+        jequinoxe += 365.242187
+        afficher la date correspondante.
+
+Le test fonctionne mais la précision n'est pas terrible : ça se joue à plusieurs minutes près. Ça peut suffire à trouver des dates incorrectes, par exemple si l'équinoxe de printemps a lieu à 23h59 et que mon programme considère qu'il a lieu le lendemain... En tout cas les fonctions fonctionnent.
+
+Finalement autant écrire une fonction qui calcule le jour de l'équinoxe de printemps pour une année donnée, c'est plus clair :
+
+    float jequ(unsigned an) ;
+        // retourne la date J2000 de l'équinoxe de printemps de l'année 'an'
+
+Algorithme : on calcule le nombre d'années entre 'an' et 2000 et on multiplie par la période de l'année tropique.
+
+b) Interlude : affichage des dates
+
+Au passage, je m'aperçois que j'aurais pu écrire une fonction qui affiche la date au format demandé dans le défi (AAAA/MM/JJ). Je vais écrire deux fonctions (dans "dates.h") : une qui affiche un jour entier, et une autre qui affiche aussi les heures et minutes :
+
+    void print_amjdate(struct amjdate date) ;   // affichage AAAA/MM/JJ
+    void print_amjdatehm(struct amjdate date) ; // affichage AAAA/MM/JJ HH:MM
+
+C'est là où il faut consulter la doc pour trouver les bons formats : "%2u" affiche deux chiffres, mais pour forcer le 0 (exemple : 06) il faut utiliser "%02u".
+
+Concernant le jour, s'il est égal à 3,999 par exemple, cela signifie qu'on est le 3 en fin de soirée, pas le 4, donc il ne faut surtout pas arrondir ! J'ai vérifié : en faisant « (int)3.999 » il retourne 3 et pas 4. (J'aurais pu utiliser les fonctions ceil et floor...)
+
+c) Calcul des pleines lunes
+
+Le mouvement de la Lune est très complexe et la période des pleines lunes risque de n'être pas très précise. Wikipédia dit : « La durée entre deux pleines lunes est d'environ 29 jours, 12 heures, 44 minutes et 2,9 secondes. C'est la période synodique de la Lune. » Exprimée en jours, cette période est de 29.530589 jours.
+
+Comment calculer la pleine Lune qui suit l'équinoxe de printemps ? Il faut d'abord calculer le nombre de jours entre l'équinoxe de printemps et la pleine Lune de référence (la première de l'an 2000), puis diviser ce nombre par 29.530589 jours, ce qui donne le nombre (décimal) de lunaisons. La prochaine pleine lune a lieu lors de la lunaison suivante.
+
+Par exemple s'il y a 2400 jours entre l'équinoxe de l'année en cours et la pleine lune de référence, ça donne 2400/29.530589 = 81,271660 lunaisons. La pleine lune suivante correspond donc à la lunaison 82. Comme 82*29.530589 = 2421.508, elle a lieu au jour 2421.508 + 21.195139 (jour de la première de 2000).
+
+Il reste à mettre en œuvre cet algorithme dans la fonction suivante :
+    float jpl(unsigner njours) ;
+        // retourne la date J2000 de la pleine lune qui suite 'njours'
+
+Vérification des fonctions 'jequ' et 'jpl' : l'algorithme est sûrement correct, mais la précision des dates de pleine lune laisse à désirer. Juste ajouter la période synodique est probablement une mauvaise idée, car j'ai plusieurs heures d'écart certaines années (tandis que pour d'autres la précision est correcte). Le mouvement de la Lune est tellement complexe !
+
+Mais ça va clairement fausser les calculs. (Sans compter que je calcule tout en UTC, mais j'ignore quel fuseau horaire il faut utiliser en réalité.)
+
+5/ CALCUL DES DATES DE PÂQUES
+
+Il reste donc à parcourir toutes les années de 2001 à 2100 et calculer le premier dimanche qui suit la pleine lune qui suit l'équinoxe de printemps. Pour ça il faut calculer le jour de la semaine de cette pleine lune.
+
+L'algorithme est simple : il suffit de connaître le jour du 31 décembre 1999 (qui est un vendredi) et l'ajouter à njours modulo 7. Ce qui donne la fonction suivante :
+
+    unsigned jsemaine(float njours) ;
+        // jour de la semaine entre 0 et 6 (0 = dimanche, 6 = samedi)
+
+(Cette fonction appartient à "astro.h" car elle va servir pour la fonction de calcul de la date de Pâques.) La fonction est facile à vérifier.
+
+Mettons que la pleine lune se produise un mercredi (jsemaine == 3). Pâques a lieu le dimanche qui suit, donc 7-3 = 4 jours plus tard. Et si la pleine lune se produit un dimanche (jsemaine == 0) ? Si j'ai bien compris la définition, Pâques doit avoir lieu le dimanche suivant, donc 7-0 = 7 jours plus tard. Il s'agit donc d'ajouter 7-jsemaine à la valeur du jour de la pleine lune. Ce qui donne la fonction, que je détaille vu comme elle est simple :
+
+    float jpaq(float jpleinelune)    // calcul le J2000 de Pâques
+    {
+        return jpleinelune + 7.0 - jsemaine(jpleinelune) ;
+    }
+
+Essayons pour l'année 2016 : il dit que c'est le 2016/03/27. Je vérifie... yes ! J'ai ensuite testé une quinzaines d'autres années, ça marche. Je pense qu'il y aura des erreurs à cause de l'imprécision de la date de la pleine lune, on verra.
+
+Il reste à écrire le programme 'main', ce sera pour demain.
+
+6/ LE MAIN
+
+Il y a juste à écrire une boucle sur les années de 2001 à 2100 et, pour chaque année, de calculer la date de l'équinoxe, la date de la pleine lune puis la date de Pâques et afficher cette date.
+
+Voilà, c'est fait.
+
+Ça marche pour la plupart des dates, mais pas toutes. Il y a deux types d'erreur :
+
+2095 : il affiche 27/03 au lieu de 24/04. Cette année là les dates exactes sont :
+    - équinoxe de printemps : 20/03 à 8h15
+    - pleine lune suivante  : 21/03 à 1h11
+    (http://www.imcce.fr/langues/fr/grandpublic/phenomenes/phases_lune/index.html)
+
+Mon programme marche très bien : il a bien proposé le dimanche qui suit la pleine lune qui suit l'équinoxe. Mais dans la vraie définition on ne parle en fait pas de pleine lune, mais de 14ème jour lunaire. J'imagine qu'avec la définition, le 14ème jour tombe le 20/03 et non le 21/03, donc avant l'équinoxe, du coup la vraie date de Pâques utilise la lunaison suivante, un mois après.
+
+2096 : il affiche 08/04 au lieu de 15/04. Cette année là les dates exactes sont :
+    - équinoxe de printemps : 19/03 à 14h03 (mon programme : 19/03 à 13h36)
+    - pleine lune suivante  : 07/04 à 18h18 (mon programme : 07/04 à 14h21)
+
+Mon programme marche très bien : le 07/04 est un samedi, donc le dimanche suivant est le 08/04. Là encore la différence vient sûrement de la définition, j'imagine que le 14ème jour lunaire tombe seulement le lendemain, du coup il va chercher Pâques au dimanche suivant.
+
+7/ REMARQUES FINALES
+
+‒ J'ai privilégié la simplicité à l'optimalité. En particulier il y a pas mal de calculs qui sont redondants.
+‒ Je n'ai pas réussi à trouver des noms de fonctions et de variables bien explicites, c'est tellement compliqué de décrire un deux mots ce que font certaines fonctions...
